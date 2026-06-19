@@ -1,5 +1,6 @@
 import EscalationLayers from './components/EscalationLayers';
 import EscalationRules from './components/EscalationRules';
+import PriorityConflictHint from './components/PriorityConflictHint';
 import HandlingRecords from './components/HandlingRecords';
 
 function App() {
