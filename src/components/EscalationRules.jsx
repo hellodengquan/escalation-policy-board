@@ -33,9 +33,8 @@ const timeScopeStyles = {
   promotion: { label: '大促期间', color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'border-rose-500/30' },
 };
 
-export default function EscalationRules() {
+export default function EscalationRules({ filterTimeScope, setFilterTimeScope }) {
   const [expandedRule, setExpandedRule] = useState(null);
-  const [filterTimeScope, setFilterTimeScope] = useState('all');
   const [filterSeverity, setFilterSeverity] = useState('all');
 
   const filteredRules = rules.filter((rule) => {
@@ -56,7 +55,7 @@ export default function EscalationRules() {
             <span className="w-1 h-6 bg-gradient-to-b from-amber-400 to-orange-500 rounded-full"></span>
             升级规则预览
           </h2>
-          <p className="text-slate-400 text-sm mt-1">明确何时需要升级、升级到哪一层</p>
+          <p className="text-slate-400 text-sm mt-1">明确何时需要升级、升级到哪一层 · 与策略冲突提示联动</p>
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
@@ -81,7 +80,7 @@ export default function EscalationRules() {
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          时间维度筛选
+          时间维度筛选（与策略冲突提示联动）
         </div>
         <div className="flex flex-wrap gap-2">
           {timeScopes.map((scope) => {
@@ -226,6 +225,8 @@ export default function EscalationRules() {
             <div className="text-xs text-slate-300 leading-relaxed">
               遇到问题时，先看<strong>「当前层级 + 已处理时间」</strong>判断是否超时；再对照<strong>「触发条件」</strong>看是否符合升级场景；
               最后根据<strong>「升级目标」</strong>联系对应层级人员。P0/P1 故障直接通知 L3+L4，不要犹豫！
+              <br />
+              <span className="text-amber-300">提示：时间维度筛选器与下方策略冲突提示联动，筛选时段后冲突提示会同步显示该时段的规则冲突。</span>
             </div>
           </div>
         </div>

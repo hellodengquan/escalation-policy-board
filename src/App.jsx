@@ -1,9 +1,12 @@
+import { useState } from 'react';
 import EscalationLayers from './components/EscalationLayers';
 import EscalationRules from './components/EscalationRules';
 import PriorityConflictHint from './components/PriorityConflictHint';
 import HandlingRecords from './components/HandlingRecords';
 
 function App() {
+  const [filterTimeScope, setFilterTimeScope] = useState('all');
+
   const now = new Date();
   const timeStr = now.toLocaleString('zh-CN', {
     year: 'numeric',
@@ -57,7 +60,8 @@ function App() {
 
         <main className="space-y-6">
           <EscalationLayers />
-          <EscalationRules />
+          <EscalationRules filterTimeScope={filterTimeScope} setFilterTimeScope={setFilterTimeScope} />
+          <PriorityConflictHint filterTimeScope={filterTimeScope} />
           <HandlingRecords />
         </main>
 

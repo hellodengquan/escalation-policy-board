@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { records, severityConfig, statusConfig, layers } from '../data/escalationData';
 
 const layerColorMap = {
@@ -168,24 +168,53 @@ export default function HandlingRecords() {
   const [filterSeverity, setFilterSeverity] = useState('all');
   const [filterLayer, setFilterLayer] = useState('all');
   const [searchKeyword, setSearchKeyword] = useState('');
+  const [dateStart, setDateStart] = useState('');
+  const [dateEnd, setDateEnd] = useState('');
+  const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
 
-  const filteredRecords = records.filter((r) => {
-    if (filterStatus !== 'all' && r.status !== filterStatus) return false;
-    if (filterSeverity !== 'all' && r.severity !== filterSeverity) return false;
-    if (filterLayer !== 'all' && r.currentLayer !== parseInt(filterLayer)) return false;
-    if (searchKeyword.trim()) {
-      const keyword = searchKeyword.toLowerCase().trim();
-      const matchTitle = r.title.toLowerCase().includes(keyword);
-      const matchId = r.id.toLowerCase().includes(keyword);
-      const matchAssignee = r.assignee.toLowerCase().includes(keyword);
-      const matchNextAction = r.nextAction.toLowerCase().includes(keyword);
-      const matchHistory = r.history.some(
-        (h) => h.action.toLowerCase().includes(keyword) || h.note.toLowerCase().includes(keyword) || h.operator.toLowerCase().includes(keyword)
-      );
-      if (!matchTitle && !matchId && !matchAssignee && !matchNextAction && !matchHistory) return false;
-    }
-    return true;
-  });
+  const searchTags = useMemo(() => {
+    return searchKeyword
+      .trim()
+      .split(/\s+/)
+      .filter((k) => k.length > 0);
+  }, [searchKeyword]);
+
+  const filteredRecords = useMemo(() => {
+    return records.filter((r) => {
+      if (filterStatus !== 'all' && r.status !== filterStatus) return false;
+      if (filterSeverity !== 'all' && r.severity !== filterSeverity) return false;
+      if (filterLayer !== 'all' && r.currentLayer !== parseInt(filterLayer)) return false;
+
+      if (dateStart) {
+        const start = new Date(dateStart + ' 00:00:00').getTime();
+        const created = new Date(r.createdAt).getTime();
+        if (created < start) return false;
+      }
+      if (dateEnd) {
+        const end = new Date(dateEnd + ' 23:59:59').getTime();
+        const created = new Date(r.createdAt).getTime();
+        if (created > end) return false;
+      }
+
+      if (searchTags.length > 0) {
+        const searchableText = [
+          r.title,
+          r.id,
+          r.assignee,
+          r.nextAction,
+          r.layerName,
+          ...r.history.map((h) => `${h.action} ${h.note} ${h.operator}`),
+        ]
+          .join(' ')
+          .toLowerCase();
+
+        const allMatch = searchTags.every((tag) => searchableText.includes(tag.toLowerCase()));
+        if (!allMatch) return false;
+      }
+
+      return true;
+    });
+  }, [filterStatus, filterSeverity, filterLayer, dateStart, dateEnd, searchTags]);
 
   const stats = {
     total: records.length,
@@ -195,20 +224,41 @@ export default function HandlingRecords() {
   };
 
   const exportCSV = () => {
-    const headers = ['工单ID', '标题', '严重等级', '状态', '当前层级', '处理人', '创建时间', '更新时间', '处理节点数', '下一步建议'];
+    const headers = [
+      '工单ID',
+      '标题',
+      '严重等级',
+      '状态',
+      '当前层级',
+      '处理人',
+      '创建时间',
+      '更新时间',
+      '解决时间',
+      '处理节点数',
+      '下一步建议',
+      '原始触发链',
+    ];
 
-    const rows = filteredRecords.map((r) => [
-      r.id,
-      r.title,
-      r.severity,
-      statusConfig[r.status]?.label || r.status,
-      r.layerName,
-      r.assignee,
-      r.createdAt,
-      r.updatedAt,
-      r.history.length,
-      r.nextAction,
-    ]);
+    const rows = filteredRecords.map((r) => {
+      const triggerChain = r.history
+        .map((h, idx) => `${idx + 1}.[${h.time}] L${h.layer} ${h.operator}: ${h.action} - ${h.note}`)
+        .join(' | ');
+
+      return [
+        r.id,
+        r.title,
+        `${r.severity}(${severityConfig[r.severity]?.label || ''})`,
+        statusConfig[r.status]?.label || r.status,
+        r.layerName,
+        r.assignee,
+        r.createdAt,
+        r.updatedAt,
+        r.resolvedAt || '-',
+        r.history.length,
+        r.nextAction,
+        triggerChain,
+      ];
+    });
 
     const csvContent = [headers, ...rows]
       .map((row) =>
@@ -236,6 +286,23 @@ export default function HandlingRecords() {
     URL.revokeObjectURL(url);
   };
 
+  const hasActiveFilters =
+    filterStatus !== 'all' ||
+    filterSeverity !== 'all' ||
+    filterLayer !== 'all' ||
+    dateStart !== '' ||
+    dateEnd !== '' ||
+    searchKeyword !== '';
+
+  const clearAllFilters = () => {
+    setFilterStatus('all');
+    setFilterSeverity('all');
+    setFilterLayer('all');
+    setSearchKeyword('');
+    setDateStart('');
+    setDateEnd('');
+  };
+
   return (
     <div className="bg-slate-800/50 backdrop-blur-sm rounded-2xl p-6 border border-slate-700/50">
       <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
@@ -248,6 +315,30 @@ export default function HandlingRecords() {
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
+          {hasActiveFilters && (
+            <button
+              onClick={clearAllFilters}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-700/50 hover:bg-slate-700 text-slate-300 text-sm font-medium transition-colors border border-slate-600/50"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              清除筛选
+            </button>
+          )}
+          <button
+            onClick={() => setShowAdvancedSearch(!showAdvancedSearch)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
+              showAdvancedSearch
+                ? 'bg-cyan-600/20 text-cyan-300 border-cyan-500/30'
+                : 'bg-slate-700/50 hover:bg-slate-700 text-slate-300 border-slate-600/50'
+            }`}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+            </svg>
+            高级搜索
+          </button>
           <button
             onClick={exportCSV}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium transition-colors"
@@ -256,11 +347,12 @@ export default function HandlingRecords() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
             </svg>
             导出 CSV
+            <span className="text-xs bg-emerald-800/50 px-1.5 py-0.5 rounded">{filteredRecords.length}</span>
           </button>
         </div>
       </div>
 
-      <div className="mb-5">
+      <div className="mb-5 space-y-3">
         <div className="relative">
           <svg
             className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"
@@ -274,7 +366,7 @@ export default function HandlingRecords() {
             type="text"
             value={searchKeyword}
             onChange={(e) => setSearchKeyword(e.target.value)}
-            placeholder="搜索工单标题、ID、处理人、操作记录..."
+            placeholder="多关键词搜索（空格分隔），例如：支付 超时 张三"
             className="w-full pl-10 pr-10 py-2.5 bg-slate-700/50 border border-slate-600 rounded-xl text-white text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all"
           />
           {searchKeyword && (
@@ -288,9 +380,77 @@ export default function HandlingRecords() {
             </button>
           )}
         </div>
-        {searchKeyword && (
-          <div className="mt-2 text-xs text-slate-400">
+
+        {searchTags.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-slate-400">搜索关键词：</span>
+            {searchTags.map((tag, idx) => (
+              <span
+                key={idx}
+                className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md bg-cyan-500/10 text-cyan-300 border border-cyan-500/30"
+              >
+                {tag}
+                <button
+                  onClick={() => {
+                    const newTags = searchTags.filter((_, i) => i !== idx);
+                    setSearchKeyword(newTags.join(' '));
+                  }}
+                  className="hover:text-white"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {showAdvancedSearch && (
+          <div className="p-4 rounded-xl bg-slate-900/40 border border-slate-700/50 space-y-3 animate-fadeIn">
+            <div className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              日期范围筛选
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-slate-400 block mb-1.5">起始日期</label>
+                <input
+                  type="date"
+                  value={dateStart}
+                  onChange={(e) => setDateStart(e.target.value)}
+                  className="w-full bg-slate-700 border border-slate-600 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  style={{ colorScheme: 'dark' }}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1.5">结束日期</label>
+                <input
+                  type="date"
+                  value={dateEnd}
+                  onChange={(e) => setDateEnd(e.target.value)}
+                  className="w-full bg-slate-700 border border-slate-600 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  style={{ colorScheme: 'dark' }}
+                />
+              </div>
+            </div>
+            {(dateStart || dateEnd) && (
+              <div className="text-xs text-slate-400">
+                当前筛选：
+                <span className="text-white ml-1">
+                  {dateStart || '不限'} 至 {dateEnd || '不限'}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {(searchKeyword || hasActiveFilters) && (
+          <div className="text-xs text-slate-400">
             找到 <span className="text-cyan-400 font-medium">{filteredRecords.length}</span> 条匹配记录
+            {searchTags.length > 1 && (
+              <span className="text-slate-500 ml-2">（{searchTags.length} 个关键词 AND 匹配）</span>
+            )}
           </div>
         )}
       </div>
@@ -352,9 +512,17 @@ export default function HandlingRecords() {
         {filteredRecords.length === 0 ? (
           <div className="text-center py-12">
             <svg className="w-12 h-12 text-slate-600 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             <div className="text-slate-500 text-sm">暂无符合条件的记录</div>
+            {hasActiveFilters && (
+              <button
+                onClick={clearAllFilters}
+                className="mt-3 text-xs text-cyan-400 hover:text-cyan-300"
+              >
+                清除所有筛选条件
+              </button>
+            )}
           </div>
         ) : (
           filteredRecords.map((record) => {
@@ -395,6 +563,12 @@ export default function HandlingRecords() {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                           </svg>
                           {record.assignee}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                          {record.createdAt.split(' ')[0]}
                         </span>
                         <span className="flex items-center gap-1">
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
